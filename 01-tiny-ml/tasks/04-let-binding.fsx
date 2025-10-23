@@ -31,28 +31,56 @@ let rec evaluate (ctx:VariableContext) e =
       let v1 = evaluate ctx e1
       let v2 = evaluate ctx e2
       match v1, v2 with 
+      // TODO: We added 'ValClosure' to 'Value', so this can now fail to 
+      // match (if you call binary operator with functions as arguments).
+      // Add a catch-all ('_') case and throw an exception using 'failwith'
+      // Also do the same for 'Unary' an 'If'!
       | ValNum n1, ValNum n2 -> 
           match op with 
           | "+" -> ValNum(n1 + n2)
           | "*" -> ValNum(n1 * n2)
-          | _ -> failwith "unsupported binary operator"
-      | _ -> failwith "invalid argument of binary operator"
+          | _ -> failwith "unsupported binary operator for numbers"
+      | _, _ ->
+          match op with
+          | _ -> failwith "unsupported binary operator for functions"
   | Variable(v) ->
       match ctx.TryFind v with 
       | Some res -> res
       | _ -> failwith ("unbound variable: " + v)
+  | Unary(op, e) ->
+      let v = evaluate ctx e
+      match v with
+        | ValNum n ->
+          match op with
+          | "-" -> ValNum(-n)
+          | _ -> failwith "unsupported unary operator for numbers"
+        | ValClosure(varName, e', capturedCtxt) ->
+          match op with
+          | _ -> failwith "unsupported unary operator for functions"
+  | If(cond, tbranch, fbranch) ->
+      let condVal = evaluate ctx cond
+      match condVal with
+      | ValNum(n) ->
+        if n = 1
+          then evaluate ctx tbranch
+          else evaluate ctx fbranch
+      | ValClosure(varName, e, capturedCtxt) ->
+        failwith "condition can't evaluate to a non-number"
+  
+  | Lambda(v, e) ->
+      ValClosure(v, e, ctx)
 
-  // NOTE: You have the following from before
-  | Unary(op, e) -> failwith "implemented in step 2"
-  | If(econd, etrue, efalse) -> failwith "implemented in step 2"
-  | Lambda(v, e) -> failwith "implemented in step 3"
-  | Application(e1, e2) -> failwith "implemented in step 3"
+  | Application(e1, e2) ->
+      let v1 = evaluate ctx e1
+      let v2 = evaluate ctx e2
+      match v1 with
+        | ValClosure(varName, e, capturedCtxt) ->
+          evaluate (Map.add varName v2 capturedCtxt ) e
+        | _ -> failwith "attempted to apply to a non-function"
 
   | Let(v, e1, e2) ->
-    // TODO: There are two ways to do this! A nice tricky is to 
-    // treat 'let' as a syntactic sugar and transform it to the
-    // 'desugared' expression and evaluating that :-)
-    failwith "not implemented"
+    let expr = Application(Lambda(v, e2), e1)
+    evaluate ctx expr
 
 // ----------------------------------------------------------------------------
 // Test cases

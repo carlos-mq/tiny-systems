@@ -39,6 +39,7 @@ and VariableContext =
 let rec evaluate (ctx:VariableContext) e =
   match e with 
   | Constant n -> ValNum n
+  
   | Binary(op, e1, e2) ->
       let v1 = evaluate ctx e1
       let v2 = evaluate ctx e2
@@ -47,24 +48,77 @@ let rec evaluate (ctx:VariableContext) e =
           match op with 
           | "+" -> ValNum(n1 + n2)
           | "*" -> ValNum(n1 * n2)
+          | _ -> failwith "unsupported binary operator for numbers"
+      | _, _ ->
+          match op with
           | _ -> failwith "unsupported binary operator"
-      | _ -> failwith "invalid argument of binary operator"
+
   | Variable(v) ->
       match ctx.TryFind v with 
       | Some res -> res.Value
       | _ -> failwith ("unbound variable: " + v)
 
-  // NOTE: You have the following from before
-  | Unary(op, e) -> failwith "implemented in step 2"
-  | If(econd, etrue, efalse) -> failwith "implemented in step 2"
-  | Lambda(v, e) -> failwith "implemented in step 3"
-  | Application(e1, e2) -> failwith "implemented in step 3"
-  | Let(v, e1, e2) -> failwith "implemented in step 4"
-  | Tuple(e1, e2) -> failwith "implemented in step 5"
-  | TupleGet(b, e) -> failwith "implemented in step 5"
-  | Match(e, v, e1, e2) -> failwith "implemented in step 6"
-  | Case(b, e) -> failwith "implemented in step 6"
-  | Recursive(v, e1, e2) -> failwith "implemented in step 7"
+  | Unary(op, e) ->
+      let v = evaluate ctx e
+      match v with
+        | ValNum n ->
+          match op with
+          | "-" -> ValNum(-n)
+          | _ -> failwith "unsupported unary operator for numbers"
+        | _ ->
+          match op with
+          | _ -> failwith "unsupported unary operator"
+
+  | If(cond, tbranch, fbranch) ->
+      let condVal = evaluate ctx cond
+      match condVal with
+      | ValNum(n) ->
+        if n = 1
+          then evaluate ctx tbranch
+          else evaluate ctx fbranch
+      | _ ->
+        failwith "condition can't evaluate to a non-number"
+  
+  | Lambda(v, e) ->
+      ValClosure(v, e, ctx)
+
+  | Application(e1, e2) ->
+      let v1 = evaluate ctx e1
+      let v2 = evaluate ctx e2
+      match v1 with
+      | ValClosure(varName, e, capturedCtxt) ->
+          evaluate (Map.add varName (lazy v2) capturedCtxt ) e
+      | _ -> failwith "attempted to apply to a non-function"
+
+  | Let(v, e1, e2) ->
+    let expr = Application(Lambda(v, e2), e1)
+    evaluate ctx expr
+
+  | Tuple(e1, e2) ->
+      ValTuple(evaluate ctx e1, evaluate ctx e2)
+
+  | TupleGet(b, e) ->
+      let v = evaluate ctx e
+      match v with
+      | ValTuple(v1, v2) ->
+        if b then v1 else v2
+      | _ -> failwith "attempted to use tuple access on a non-tuple"
+
+  | Match(e, v, e1, e2) ->
+      let matchVal = evaluate ctx e
+      match matchVal with
+      | ValCase(b, caseVal) ->
+        if b
+          then evaluate (Map.add v (lazy caseVal) ctx) e1
+          else evaluate (Map.add v (lazy caseVal) ctx) e2
+      | _ -> failwith "attempted to pattern-match with a non-case value"
+
+  | Case(b, e) ->
+      ValCase(b, evaluate ctx e)
+
+  | Recursive(v, e1, e2) ->
+      let rec newCtx  = Map.add v (lazy evaluate newCtx e1) ctx
+      evaluate newCtx e2
 
   // NOTE: This is so uninteresting I did this for you :-)
   | Unit -> ValUnit
@@ -93,10 +147,11 @@ let el = makeListExpr [ for i in 1 .. 5 -> Constant i ]
 //
 //   let rec map = (fun f -> fun l -> 
 //     match l with 
-//     | Case1 t -> Case1(f x#1, (map f) x#2) 
+//     | Case1 x -> Case1(f x#1, (map f) x#2) 
 //     | Case2(Unit) -> Case2(Unit))
 //   in map (fun y -> y * 10) l
 //
+
 let em = 
   Recursive("map",
     Lambda("f", Lambda("l", 
@@ -113,8 +168,37 @@ let em =
     Application(Application(Variable "map", 
       Lambda("y", Binary("*", Variable "y", Constant 10))), el)
   )
-evaluate Map.empty em
 
+let mapExpr =
+  Recursive("map",
+    Lambda("f", Lambda("l", 
+      Match(
+        Variable("l"), "x",
+        Case(true, Tuple(
+          Application(Variable "f", TupleGet(true, Variable "x")),
+          Application(Application(Variable "map", Variable "f"), 
+            TupleGet(false, Variable "x"))
+        )),
+        Case(false, Unit)
+      )
+    )),
+    Variable "map"
+  )
+let example1 = evaluate Map.empty em
+
+
+let rec showNumber (l : Value) : string =
+  match l with
+  | ValNum n -> string n
+  | _ -> failwith "not a number"
+let rec showList (l : Value) : string =
+  match l with
+  | ValCase(b, ValUnit) -> ""
+  | ValCase(b, ValTuple(n, tail)) ->
+    showNumber n + " " + showList tail
+  | _ -> failwith "not a list"
+
+showList example1
 // TODO: Can you implement 'List.filter' in TinyML too??
 // The somewhat silly example removes 3 from the list.
 // Add '%' binary operator and you can remove odd/even numbers!
@@ -127,5 +211,35 @@ evaluate Map.empty em
 //     | Case2(Unit) -> Case2(Unit))
 //   in map (fun y -> y + (-2)) l
 //
-let ef = failwith "not implemented"
-evaluate Map.empty ef
+
+let ef =
+  Recursive(
+    "filter", 
+    Lambda(
+      "f", 
+      Lambda(
+        "l",
+        Match(
+          Variable("l"),
+          "x",
+          Case(
+            true, 
+            If(
+              Application(Variable("f"), TupleGet(true, Variable "x")), 
+              Case(
+                true, 
+                Tuple(
+                  TupleGet(true, Variable "x"), 
+                  Application(Application(Variable("map"), Variable("f")), TupleGet(false, Variable "x"))
+                )
+              ),
+              Application(Application(Variable("map"), Variable("f")), TupleGet(false, Variable("x")))
+              )
+          ),    
+          Case(false, Unit)
+        )
+      )
+    ),
+    Application(Application(Variable("map"), Lambda("y", Binary("+", Variable("y"), Constant(-2)))), el)
+  )
+evaluate (Map.ofList ["map", lazy (evaluate Map.empty mapExpr)]) ef |> showList

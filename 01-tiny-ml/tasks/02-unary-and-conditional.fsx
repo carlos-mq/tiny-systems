@@ -23,7 +23,7 @@ type VariableContext =
 // Evaluator
 // ----------------------------------------------------------------------------
 
-let rec evaluate (ctx:VariableContext) e =
+let rec evaluate (ctx : VariableContext) (e : Expression) : Value =
   // NOTE: You get a warning here, because the handling
   // of the 'If' case is missing (and it will fail at runtime
   // if you call the function with 'If' before implementing it).
@@ -44,9 +44,20 @@ let rec evaluate (ctx:VariableContext) e =
       | Some res -> res
       | _ -> failwith ("unbound variable: " + v)
   | Unary(op, e) ->
-      // TODO: Implement the case for 'Unary' here!
-      failwith "not implemented"
-  // TODO: Add the correct handling of 'If' here!
+      let v = evaluate ctx e
+      match v with
+        | ValNum n ->
+          match op with
+          | "-" -> ValNum(-n)
+          | _ -> failwith "unsupported unary operator"
+  | If(cond, tbranch, fbranch) ->
+      let condVal = evaluate ctx cond
+      match condVal with
+      | ValNum(n) ->
+        if n = 1
+          then evaluate ctx tbranch
+          else evaluate ctx fbranch
+
 
 
 // ----------------------------------------------------------------------------

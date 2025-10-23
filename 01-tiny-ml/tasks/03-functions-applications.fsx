@@ -46,25 +46,45 @@ let rec evaluate (ctx:VariableContext) e =
           match op with 
           | "+" -> ValNum(n1 + n2)
           | "*" -> ValNum(n1 * n2)
-          | _ -> failwith "unsupported binary operator"
+          | _ -> failwith "unsupported binary operator for numbers"
+      | _, _ ->
+          match op with
+          | _ -> failwith "unsupported binary operator for functions"
   | Variable(v) ->
       match ctx.TryFind v with 
       | Some res -> res
       | _ -> failwith ("unbound variable: " + v)
-
-  // NOTE: You have the following two from before
-  | Unary(op, e) -> failwith "implemented in step 2"
-  | If(econd, etrue, efalse) -> failwith "implemented in step 2"
+  | Unary(op, e) ->
+      let v = evaluate ctx e
+      match v with
+        | ValNum n ->
+          match op with
+          | "-" -> ValNum(-n)
+          | _ -> failwith "unsupported unary operator for numbers"
+        | ValClosure(varName, e', capturedCtxt) ->
+          match op with
+          | _ -> failwith "unsupported unary operator for functions"
+  | If(cond, tbranch, fbranch) ->
+      let condVal = evaluate ctx cond
+      match condVal with
+      | ValNum(n) ->
+        if n = 1
+          then evaluate ctx tbranch
+          else evaluate ctx fbranch
+      | ValClosure(varName, e, capturedCtxt) ->
+        failwith "condition can't evaluate to a non-number"
   
   | Lambda(v, e) ->
-      // TODO: Evaluate a lambda - create a closure value
-      failwith "not implemented"
+      ValClosure(v, e, ctx)
 
   | Application(e1, e2) ->
-      // TODO: Evaluate a function application. Recursively
-      // evaluate 'e1' and 'e2'; 'e1' must evaluate to a closure.
-      // You can then evaluate the closure body.
-      failwith "not implemented"
+      let v1 = evaluate ctx e1
+      let v2 = evaluate ctx e2
+      match v1 with
+        | ValClosure(varName, e, capturedCtxt) ->
+          evaluate (Map.add varName v2 ctx ) e
+        | _ -> failwith "attempted to apply to a non-function"
+
 
 // ----------------------------------------------------------------------------
 // Test cases
