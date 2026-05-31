@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "h34jjvXF+Ik=",
+  "success": true,
+  "projectFilePath": "/Users/depressedcubic/uni/tiny-systems/02-tiny-basic/tasks/tinybasic.fsproj",
+  "expectedPackageFiles": [
+    "/Users/depressedcubic/.nuget/packages/fsharp.core/9.0.303/fsharp.core.9.0.303.nupkg.sha512"
+  ],
+  "logs": []
+}

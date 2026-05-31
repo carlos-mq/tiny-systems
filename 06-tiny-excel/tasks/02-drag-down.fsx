@@ -21,25 +21,26 @@ type Sheet = Map<Address, Expr>
 // ----------------------------------------------------------------------------
 
 let rec relocateReferences (srcCol, srcRow) (tgtCol, tgtRow) (srcExpr:Expr) = 
-  // TODO: Replace references in expression 'srcExpr' in a way that 
-  // corresponds to moving the expression from address (srcRow, srcCol)
-  // to address (tgtRow, tgtCol). So for example, if a formula 'A1+A2' is
-  // moved from 'A3' to 'B10' then it should change to 'B8+B9' (address
-  // is incremented by column difference 1 and row difference 7)
-  failwith "not implemented!"
+  match srcExpr with
+  | Const(v) -> srcExpr
+  | Reference(col, row) -> 
+    Reference(col + tgtCol - srcCol, row + tgtRow - srcRow)
+  | Function (op, args) ->
+    Function(op, List.map (relocateReferences (srcCol, srcRow) (tgtCol, tgtRow)) args)
 
 
 let expand (srcCol, srcRow) (tgtCol, tgtRow) (sheet:Sheet) : Sheet = 
-  // TODO: Expand formula at address (srcCol, srcRow) to all the cells 
-  // between itself and target cell at address (tgtCol, tgtRow) and
-  // add the new formulas to the given sheet, returning the new sheet.
-  // 
-  // HINT: You can use list comprehension with 'for .. in .. do' and 
-  // 'yield' or you can use 'List.init'. The comprehension is nicer, 
-  // but you need to figure out the right syntax! Once you generate
-  // new cells, you can add them to the Map using List.fold (with the 
-  // sheet as the current state, updated in each step using Map.add).
-  failwith "not implemented!"
+  let srcExpr =
+    match Map.tryFind (srcCol, srcRow) sheet with
+    | Some expr -> expr
+    | None -> failwith "No formula found at the source cell!"
+  let newCells = seq { 
+    for col in [ srcCol .. tgtCol ] do
+      for row in [ srcRow .. tgtRow ] ->
+        ((col, row), relocateReferences (srcCol, srcRow) (col, row) srcExpr)
+  }
+  List.fold (fun (s:Sheet) ((col, row), expr) -> (Map.add (col, row) expr s)) sheet (List.ofSeq newCells)
+
 
 
 // ----------------------------------------------------------------------------
@@ -47,7 +48,22 @@ let expand (srcCol, srcRow) (tgtCol, tgtRow) (sheet:Sheet) : Sheet =
 // ----------------------------------------------------------------------------
 
 let rec eval (sheet:Sheet) expr = 
-  failwith "implemented in step 1"
+  match expr with
+  | Const(v) -> v
+  | Reference(col, row) -> 
+    match Map.tryFind (col, row) sheet with
+    | None -> Error "Missing value"
+    | Some expr' -> eval sheet expr'
+  | Function("+", [e1; e2]) ->
+    match (eval sheet e1, eval sheet e2) with
+    | (Number(n1), Number(n2)) -> Number(n1 + n2)
+    | _ -> Error "Non-numerical addition not supported"
+  | Function("*", [e1; e2]) ->
+    match (eval sheet e1, eval sheet e2) with
+    | (Number(n1), Number(n2)) -> Number(n1 * n2)
+    | _ -> Error "Non-numerical multiplication not supported"
+  | _ -> Error "Can't evaluate unknown function"
+
 
 
 // ----------------------------------------------------------------------------
@@ -55,7 +71,9 @@ let rec eval (sheet:Sheet) expr =
 // ----------------------------------------------------------------------------
 
 let addr (s:string) = 
-  failwith "implemented in step 1"
+  let colLetter = s[0]
+  let rowNumber = s[1..]
+  ((int colLetter) - (int 'A'), int rowNumber)
 
 
 let fib =  

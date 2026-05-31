@@ -21,53 +21,61 @@ type State =
 // Utilities
 // ----------------------------------------------------------------------------
 
-let printValue value = failwith "implemented in step 1"
-let getLine state line = failwith "implemented in step 1"
+let printValue (value : Value) : unit = 
+  match value with
+  | StringValue s -> printfn "%s" s
 
-let addLine state (line, cmd) = 
-  // TODO: Add a given line to the program state. This should overwrite 
-  // a previous line (if there is one with the same number) and also ensure
-  // that state.Program is sorted by the line number.
-  // HINT: Use List.filter and List.sortBy. Use F# Interactive to test them!
-  failwith "not implemented"
+
+let getLine (state : State) (line : int) : int * Command =
+  match state.Program |> List.tryFind (fun (lineNum, _) -> lineNum = line) with
+  | Some l -> l
+  | None -> failwith "line not found!"
+
+let addLine state (line, cmd) : State = 
+  let filteredProgram = List.filter (fun (lineNum, _) -> lineNum <> line) state.Program
+  let overwrittenProgram = (line, cmd) :: filteredProgram |> List.sortBy fst
+  {state with Program = overwrittenProgram }
+  
 
 // ----------------------------------------------------------------------------
 // Evaluator
 // ----------------------------------------------------------------------------
 
-let rec evalExpression expr = failwith "implemented in step 1"
+let rec evalExpression (expr : Expression) : Value = 
+  match expr with
+  | Const v -> v
 
-let rec runCommand state (line, cmd) =
+let rec runCommand state (line, cmd) : State =
   match cmd with 
   | Run ->
       let first = List.head state.Program    
       runCommand state first
 
-  | Print(expr) -> failwith "implemented in step 1"
-  | Goto(line) -> failwith "implemented in step 1"
+  | Print(expr) ->
+      evalExpression expr |> printValue
+      runNextLine state line
+  | Goto(ln) ->
+      let nextLine = getLine state ln
+      runCommand state nextLine
 
-and runNextLine state line = failwith "implemented in step 1"
+and runNextLine state line = 
+  match state.Program |> List.tryFind (fun (lineNum, _) -> lineNum > line) with
+  | Some (ln, cmd) -> runCommand state (ln, cmd)
+  | None -> state
 
 // ----------------------------------------------------------------------------
 // Interactive program editing
 // ----------------------------------------------------------------------------
 
-let runInput state (line, cmd) =
-  // TODO: Simulate what happens when the user enters a line of code in the 
-  // interactive terminal. If the 'line' number is 'Some ln', we want to 
-  // insert the line into the right location of the program (addLine); if it
-  // is 'None', then we want to run it immediately. To make sure that 
-  // 'runCommand' does not try to run anything afterwards, you can pass 
-  // 'System.Int32.MaxValue' as the line number to it (or you could use -1
-  // and handle that case specially in 'runNextLine')
-  failwith "not implemented"
+let runInput (state : State) (line : option<int>, cmd : Command) : State =
+  match line with
+  | Some ln -> runCommand state (ln, cmd)
+  | None -> runCommand state (System.Int32.MaxValue, cmd)
+  
       
 
-let runInputs state cmds =
-  // TODO: Apply all the specified commands to the program state using 'runInput'.
-  // This is a one-liner if you use 'List.fold' which has the following type:
-  //   ('State -> 'T -> 'State) -> 'State -> list<'T> -> 'State
-  failwith "not implemented" 
+let runInputs (state : State) (cmds : list<option<int> * Command>) : State =
+  List.fold runInput state cmds
 
 // ----------------------------------------------------------------------------
 // Test cases

@@ -28,53 +28,92 @@ type LiveSheet = Map<Address, CellNode>
 // ----------------------------------------------------------------------------
 
 let rec eval (sheet:LiveSheet) expr = 
-  failwith "implemented in step 1 and 3"
+  match expr with
+  | Const(v) -> v
+  | Reference(col, row) -> 
+    match Map.tryFind (col, row) sheet with
+    | None -> Error "Missing value"
+    | Some expr' -> expr'.Value
+  | Function("+", [e1; e2]) ->
+    match (eval sheet e1, eval sheet e2) with
+    | (Number(n1), Number(n2)) -> Number(n1 + n2)
+    | _ -> Error "Non-numerical addition not supported"
+  | Function("-", [e1; e2]) ->
+    match (eval sheet e1, eval sheet e2) with
+    | (Number(n1), Number(n2)) -> Number(n1 - n2)
+    | _ -> Error "Non-numerical subtraction not supported"
+  | Function("*", [e1; e2]) ->
+    match (eval sheet e1, eval sheet e2) with
+    | (Number(n1), Number(n2)) -> Number(n1 * n2)
+    | _ -> Error "Non-numerical multiplication not supported"
+  | Function ("/", [e1; e2]) ->
+    match (eval sheet e1, eval sheet e2) with
+    | (Number(n1), Number(n2)) -> Number(n1 / n2)
+    | _ -> Error "Non-numerical division not supported"
+  | _ -> Error "Can't evaluate unknown function"
   
 
 let rec collectReferences (expr:Expr) : Address list = 
-  // TODO: Collect the addresses of all references that appear in the 
-  // expression 'expr'. This needs to call itself recursively for all
-  // arguments of 'Function' and concatenate the returned lists.
-  // HINT: This looks nice if you use 'List.collect'.
-  failwith "not implemented"
+  match expr with
+  | Const(_) -> []
+  | Reference(col, row) -> [(col, row)]
+  | Function(op, args) -> List.collect collectReferences args
 
 
 let makeNode (sheet:LiveSheet) expr = 
-  // TODO: Add handling of 'Update' events!
-  //
-  // * When creating a node, we need to create a new event and 
-  //   set it as the 'Updated' event of the returned node.
-  // * We then need to define 'update' function that will be triggered
-  //   when any of the cells on which this one depends change. In the 
-  //   function, re-evaluate the formula, set the new value and trigger
-  //   our Updated event to notify other cells.
-  // * Before returning, use 'collectReferences' to find all cells on which
-  //   this one depends and add 'update' as the handler of their 
-  //   'Updated' event
-  //
-  failwith "partly implemented in step 3"
+  let newNode = {Value = eval sheet expr; Expr = expr; Updated = Event<unit>()}
+  let update = (fun () ->
+    newNode.Value <- eval sheet expr
+    newNode.Updated.Trigger()
+  )
+  let refs = collectReferences expr 
+  for addr in refs do
+      match sheet.TryFind(addr) with
+      | None -> failwith "No cell found!"
+      | Some node ->
+        node.Updated.Publish.Add(update) 
+  newNode
+
+  
+  
 
 
-let updateNode addr (sheet:LiveSheet) expr = 
-  // TODO: For now, we ignore the fact that the new expression may have
-  // different set of references than the one we are replacing. 
-  // So, we can just get the node, set the new expression and value
-  // and trigger the Updated event!
-  failwith "not implemented"
+let updateNode addr (sheet:LiveSheet) expr =
+  match sheet.TryFind(addr) with
+  | None -> failwith "No cell found!"
+  | Some node -> 
+    node.Expr <- expr
+    node.Value <- eval sheet expr
+    node.Updated.Trigger()
 
 
-let makeSheet list = 
-  failwith "implemented in step 3"
+
+let makeSheet (list:(Address * Expr) list) : LiveSheet =
+  List.fold (fun sheet (address, expr) -> Map.add address (makeNode sheet expr) sheet) Map.empty list
 
 // ----------------------------------------------------------------------------
 // Drag down expansion
 // ----------------------------------------------------------------------------
 
 let rec relocateReferences (srcCol, srcRow) (tgtCol, tgtRow) (srcExpr:Expr) = 
-  failwith "implemented in step 2"
+  match srcExpr with
+  | Const(v) -> srcExpr
+  | Reference(col, row) -> 
+    Reference(col + tgtCol - srcCol, row + tgtRow - srcRow)
+  | Function (op, args) ->
+    Function(op, List.map (relocateReferences (srcCol, srcRow) (tgtCol, tgtRow)) args)
 
 let expand (srcCol, srcRow) (tgtCol, tgtRow) (sheet:LiveSheet) : LiveSheet = 
-  failwith "implemented in step 2 and 3"
+  let srcNode =
+    match Map.tryFind (srcCol, srcRow) sheet with
+    | Some expr -> expr
+    | None -> failwith "No formula found at the source cell!"
+  let newCells = seq { 
+    for col in [ srcCol .. tgtCol ] do
+      for row in [ srcRow .. tgtRow ] ->
+        ((col, row), relocateReferences (srcCol, srcRow) (col, row) srcNode.Expr)
+  }
+  List.fold (fun (s:LiveSheet) ((col, row), nodeExpr) -> (Map.add (col, row) (makeNode s nodeExpr) s)) sheet (List.ofSeq newCells)
 
 
 // ----------------------------------------------------------------------------
@@ -82,7 +121,9 @@ let expand (srcCol, srcRow) (tgtCol, tgtRow) (sheet:LiveSheet) : LiveSheet =
 // ----------------------------------------------------------------------------
 
 let addr (s:string) = 
-  failwith "implemented in step 1"
+  let colLetter = s[0]
+  let rowNumber = s[1..]
+  ((int colLetter) - (int 'A'), int rowNumber)
 
 // Simple spreadsheet that performs conversion between Celsius and Fahrenheit
 // To convert F to C, we put value in F into B1 and read the result in C1
@@ -98,8 +139,12 @@ let tempConv =
         Const(Number 9) ]) 
     addr "A2", Const(String "C to F")
     addr "B2", Const(Number 0) 
-    // TODO: Add formula for Celsius to Fahrenheit conversion to 'C2'
-    addr "C2", Const(Error "not implemented") ]
+    addr "C2",
+      Function("+", [
+      Function("/", [Function("*", [ Reference(addr "B2"); Const(Number 9) ]); Const(Number 5)])
+      Const(Number 32)
+      ])
+    ]
   |> makeSheet
 
 // Fahrenheit to Celsius conversions

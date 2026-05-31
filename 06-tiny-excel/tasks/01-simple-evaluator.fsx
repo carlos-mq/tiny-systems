@@ -33,13 +33,22 @@ type Sheet = Map<Address, Expr>
 
 
 let rec eval (sheet:Sheet) expr = 
-  // TODO: Implement simple recursive evauator!  
-  // * This should support functions "+" and "*" with two arguments. 
-  // * All other function calls should evaluate to Error.
-  // * Reference to a cell that is not in 'sheet' should evaluate to Error.
-  // * To evaluat Reference, get the expression from the cell and evaluate that.
-  //   (we will replace this with incremental event-based code later)
-  failwith "not implemented!"
+  match expr with
+  | Const(v) -> v
+  | Reference(col, row) -> 
+    match Map.tryFind (col, row) sheet with
+    | None -> Error "Missing value"
+    | Some expr' -> eval sheet expr'
+  | Function("+", [e1; e2]) ->
+    match (eval sheet e1, eval sheet e2) with
+    | (Number(n1), Number(n2)) -> Number(n1 + n2)
+    | _ -> Error "Non-numerical addition not supported"
+  | Function("*", [e1; e2]) ->
+    match (eval sheet e1, eval sheet e2) with
+    | (Number(n1), Number(n2)) -> Number(n1 * n2)
+    | _ -> Error "Non-numerical multiplication not supported"
+  | _ -> Error "Can't evaluate unknown function"
+
 
 
 
@@ -48,11 +57,9 @@ let rec eval (sheet:Sheet) expr =
 // ----------------------------------------------------------------------------
 
 let addr (s:string) = 
-  // TODO: Parse a cell reference such as 'A10' or 'C3'. You can assume that
-  // this will always be one letter followed by a number. You can access 
-  // characters using "Hello".[2], convert them to integer using 'int' 
-  // (int 'A' returns 65, but int "123" parses the string and returns 123).
-  failwith "not implemented!"
+  let colLetter = s[0]
+  let rowNumber = s[1..]
+  ((int colLetter) - (int 'A'), int rowNumber)
 
 
 let fib =  

@@ -29,26 +29,31 @@ type LiveSheet = Map<Address, CellNode>
 // ----------------------------------------------------------------------------
 
 let rec eval (sheet:LiveSheet) expr = 
-  // TODO: Modify the 'Reference' case. Instead of recursively calling 
-  // 'eval', this should now locate the graph node and return the 'Value'
-  // that is stored in the graph node!
-  failwith "implemented in step 1"
+  match expr with
+  | Const(v) -> v
+  | Reference(col, row) -> 
+    match Map.tryFind (col, row) sheet with
+    | None -> Error "Missing value"
+    | Some expr' -> expr'.Value
+  | Function("+", [e1; e2]) ->
+    match (eval sheet e1, eval sheet e2) with
+    | (Number(n1), Number(n2)) -> Number(n1 + n2)
+    | _ -> Error "Non-numerical addition not supported"
+  | Function("*", [e1; e2]) ->
+    match (eval sheet e1, eval sheet e2) with
+    | (Number(n1), Number(n2)) -> Number(n1 * n2)
+    | _ -> Error "Non-numerical multiplication not supported"
+  | _ -> Error "Can't evaluate unknown function"
+
   
 
 let makeNode (sheet:LiveSheet) (expr:Expr) : CellNode = 
-  // TODO: Create a dependency graph node. In this step, we just want
-  // to get the same functionality as before (i.e., no event handling)
-  // so evaluate the expression, store it and return the node.
-  failwith "not implemented"
+  {Value = eval sheet expr; Expr = expr}
 
 
-let makeSheet (list:(Address * Expr) list) : LiveSheet = 
-  // TODO: Previously, we could turn a list of mappings into a sheet just
-  // by using Map.ofList. This no longer works, because we need to add
-  // cells one by one (we should make sure that all cells on which the new one
-  // depends are already in the sheet, but we assume examples are given
-  // in a correct order). To do this, use 'List.fold' and 'makeNode'. 
-  failwith "not implemented"
+let makeSheet (list:(Address * Expr) list) : LiveSheet =
+  List.fold (fun sheet (address, expr) -> Map.add address (makeNode sheet expr) sheet) Map.empty list
+
 
 
 // ----------------------------------------------------------------------------
@@ -56,13 +61,25 @@ let makeSheet (list:(Address * Expr) list) : LiveSheet =
 // ----------------------------------------------------------------------------
 
 let rec relocateReferences (srcCol, srcRow) (tgtCol, tgtRow) (srcExpr:Expr) = 
-  failwith "implemented in step 2"
+  match srcExpr with
+  | Const(v) -> srcExpr
+  | Reference(col, row) -> 
+    Reference(col + tgtCol - srcCol, row + tgtRow - srcRow)
+  | Function (op, args) ->
+    Function(op, List.map (relocateReferences (srcCol, srcRow) (tgtCol, tgtRow)) args)
 
 
 let expand (srcCol, srcRow) (tgtCol, tgtRow) (sheet:LiveSheet) : LiveSheet = 
-  // TODO: This needs to call 'makeNode' and add the resulting node, 
-  // instead of just adding the expression to the map as is.
-  failwith "implemented in step 2"
+  let srcNode =
+    match Map.tryFind (srcCol, srcRow) sheet with
+    | Some expr -> expr
+    | None -> failwith "No formula found at the source cell!"
+  let newCells = seq { 
+    for col in [ srcCol .. tgtCol ] do
+      for row in [ srcRow .. tgtRow ] ->
+        ((col, row), relocateReferences (srcCol, srcRow) (col, row) srcNode.Expr)
+  }
+  List.fold (fun (s:LiveSheet) ((col, row), nodeExpr) -> (Map.add (col, row) (makeNode s nodeExpr) s)) sheet (List.ofSeq newCells)
 
 
 // ----------------------------------------------------------------------------
@@ -70,7 +87,9 @@ let expand (srcCol, srcRow) (tgtCol, tgtRow) (sheet:LiveSheet) : LiveSheet =
 // ----------------------------------------------------------------------------
 
 let addr (s:string) = 
-  failwith "implemented in step 1"
+  let colLetter = s[0]
+  let rowNumber = s[1..]
+  ((int colLetter) - (int 'A'), int rowNumber)
 
 let fib =  
   [ addr "A1", Const(Number 0) 

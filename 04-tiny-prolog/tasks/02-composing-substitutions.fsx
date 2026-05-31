@@ -21,42 +21,45 @@ let rule p b = { Head = p; Body = b }
 // Substitutions and unification of terms
 // ----------------------------------------------------------------------------
 
-let rec substitute (subst:Map<string, Term>) term = 
-  // TODO: Replace variables in 'term' for which there is a
-  // replacement specified by 'subst.[var]' with the replacement.
-  // You can assume the terms in 'subst' do not contain
-  // any of the variables that we want to replace.
-  failwith "not implemented"
+let rec substitute (subst:Map<string, Term>) term =
+  match term with
+  | Variable var ->
+    match subst.TryFind(var) with
+      | Some t -> t
+      | None -> Variable var
+  | Predicate(pred, terms) ->
+    Predicate(pred, List.map (substitute subst) terms)
+  | _ -> term
 
 
-let substituteSubst (newSubst:Map<string, Term>) (subst:list<string * Term>) = 
-  // TODO: Apply the substitution 'newSubst' to all the terms 
-  // in the existing substitiution 'subst'. (We represent one 
-  // as a map and the other as a list of pairs, which is a bit 
-  // inelegant, but it makes calling this function easier later.)
-  failwith "not implemented"
+
+let substituteSubst (newSubst:Map<string, Term>) (subst:list<string * Term>) =
+  List.map (fun (v, t) -> (v, substitute newSubst t)) subst
 
 
 let substituteTerms (subst:Map<string, Term>) (terms:list<Term>) = 
-  // TODO: Apply substitution 'subst' to all the terms in 'terms'
-  failwith "not implemented"
+  List.map (substitute subst) terms
 
-
-let rec unifyLists l1 l2 = 
-  // TODO: Modify the implementation to use 'substituteTerms' and 'substituteSubst'.
-  //
-  // Let's say that your code calls 'unify h1 h2' to get a substitution 's1'
-  // and then it calls 'unifyLists t1 t2' to get a substitution 's2' and then
-  // it returns a concatentated list 's1 @ s2'. Modify the code so that:
-  //
-  // (1) The substitution 's1' is aplied to 't1' and 't2' before calling 'unifyLists'
-  // (2) The substitution 's2' is applied to all terms in substitution 's1' before returning
-  //
-  // You can look at your ML type inference code. The structure is very similar! 
-  failwith "implemented in step 1"
-
-and unify t1 t2 = 
-  failwith "implemented in step 1"
+let rec unifyList l1 l2 : option<list<string * Term>> =
+  match l1, l2 with
+  | [], [] -> Some []
+  | h1::t1, h2::t2 ->
+    match (unify h1 h2) with
+    | None -> None
+    | Some s1 ->
+      match unifyList (substituteTerms (Map.ofList s1) t1) (substituteTerms (Map.ofList s1) t2) with
+      | None -> None
+      | Some s2 -> Some (s2 @ (substituteSubst (Map.ofList s2) s1))
+  | _ -> None
+and unify t1 t2 : option<list<string * Term>> = 
+  match t1, t2 with 
+  | Atom a1, Atom a2 ->
+    if (a1 = a2) then Some [] else None
+  | Predicate(p1, l1), Predicate(p2, l2) ->
+    if (p1 = p2) then unifyList l1 l2 else None
+  | Variable v, t -> Some [(v, t)]
+  | t, Variable v -> Some [(v, t)]
+  | _ -> None
 
 // ----------------------------------------------------------------------------
 // Advanced unification tests requiring correct substitution

@@ -64,12 +64,27 @@ let makeParentSlot (n:string) contents =
 // Note that we do not need to keep track of visited objects as we will not
 // create cyclic inheritance graphs in TinySelf.
 
-let rec lookup (msg:string) (obj:Objekt) : list<Slot> = 
-  // TODO: Implement message lookup (as documented in the Self handbook)
-  // * If there is a slot named 'msg' in 'obj', return that 
-  // * Otherwise, return all slots named 'msg' slots in objects 
-  //   contained in all the parent slots of 'obj' (concatenate them)
-  failwith "TODO: not implemented"
+let rec lookupSlotName (name : string) (slots : list<Slot>) : option<Slot> =
+  match slots with
+  | [] -> None
+  | s1 :: ss ->
+    match s1 with
+    | { Name = n} -> if (n = name) then Some s1 else (lookupSlotName name ss)
+
+let rec findAllParentObjekts (slots : list<Slot>) : list<Objekt> =
+  match slots with
+  | [] -> []
+  | s1 :: ss ->
+    if s1.IsParent 
+      then (s1.Contents :: (findAllParentObjekts ss)) 
+      else (findAllParentObjekts ss)
+
+let rec lookup (msg:string) (obj:Objekt) : list<Slot> =
+  match lookupSlotName msg obj.Slots with
+  | Some s -> [s]
+  | _ ->
+    let parents = findAllParentObjekts obj.Slots
+    List.collect (lookup msg) parents
 
 // ----------------------------------------------------------------------------
 // Helpers for testing & object construction
@@ -81,21 +96,21 @@ let rec lookup (msg:string) (obj:Objekt) : list<Slot> =
 let makeString s = 
   makeObject [ makeSlot "value" (makeSpecialObject (String s)) ]
 
-// TODO: Scroll down, create the "Hello world" string object and 
-// visualize it to see what the representation looks like!
-
-let lookupSlotValue (msg:string) (obj:Objekt) : Objekt  = 
-  // TODO: Find the slot named 'n' in the object 'o' and return its contents
-  // Call 'lookup' to find the possible slots. If there is one, return its contents.
-  // If there are more, raise an exception using failwith. 
-  failwith "TODO: not implemented"
+let lookupSlotValue (msg:string) (obj:Objekt) : Objekt  =
+  match lookup msg obj with
+  | [slot] -> slot.Contents
+  | [] -> failwith "No slots found!"
+  | _ -> failwith "Too many slots found!"
 
 // Get the actual string value from a string object (or fail)
 let getStringValue (obj:Objekt) : string = 
   // TODO: Get the value of 'value' slot using 'lookupSlotValue'
   // This should be an object that has 'Special' set to 'Some str'
   // Return the string value!
-  failwith "TODO: not implemented"
+  let o = lookupSlotValue "value" obj
+  match o.Special with
+  | Some (String s) -> s
+  | _ -> failwith "The object doesn't have a string at a 'value' slot!"
 
 // Ad-hoc helper for testing that prints a string result of 'lookup'
 let printStringSlot slots = 
@@ -154,7 +169,11 @@ larry |> lookup "book" |> printStringSlot
 let wonderland = makeObject [
   makeSlot "book" (makeString "Alice in Wonderland")
 ]
-let cheshire = failwith "TODO: not implemented"
+let cheshire = makeObject [
+  makeParentSlot "parent*" cat
+  makeParentSlot "fictional*" wonderland
+  makeSlot "name" (makeString "Cheshire Cat")
+]
 Vis.printObjectTree cheshire
 
 // All of these should be OK!

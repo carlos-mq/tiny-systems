@@ -44,47 +44,72 @@ let makeNativeMethod f =
 // Lookup and message sending
 // ----------------------------------------------------------------------------
 
-// TODO: To implement assignment, we need to know what object a slot
-// comes from. Modify 'lookup' so that it returns not just the slot,
-// but also the object that the slot comes from.
-let rec lookup (msg:string) (obj:Objekt) : list<Objekt * Slot> = 
-  failwith "TODO - modify implementation from step 2"
+let rec lookupSlotName (name : string) (slots : list<Slot>) : option<Slot> =
+  match slots with
+  | [] -> None
+  | s1 :: ss ->
+    match s1 with
+    | { Name = n} -> if (n = name) then Some s1 else (lookupSlotName name ss)
 
-// TODO: Modify 'send' and 'eval' to also take message send arguments.
-// In Self, the arguments are copied into the activation record. 
-// In TinySelf, we use simpler trick - just make the 'args' object 
-// another parent of the activation record! Lookup for argument name 
-// in the activation record will then give us the value.
-// NOTE: The object newly returned from 'lookup' should be ignored.
-// BEWARE: All arguments are 'Objekt' so it is easy to swap them!! 
+let rec findAllParentObjekts (slots : list<Slot>) : list<Objekt> =
+  match slots with
+  | [] -> []
+  | s1 :: ss ->
+    if s1.IsParent 
+      then (s1.Contents :: (findAllParentObjekts ss)) 
+      else (findAllParentObjekts ss)
+
+let rec lookup (msg:string) (obj:Objekt) : list<Objekt * Slot> =
+  match lookupSlotName msg obj.Slots with
+  | Some s -> [(obj, s)]
+  | _ ->
+    let parents = findAllParentObjekts obj.Slots
+    List.collect (lookup msg) parents
+
 let eval (slotValue:Objekt) (args:Objekt) (instance:Objekt) : Objekt =
-  failwith "TODO - modify implementation from step 2"
+  match slotValue with
+  | { Code = None } -> slotValue
+  | { Code = Some c } -> 
+    match c with
+    | { Special = Some (Native f)} ->
+      let receiverParent = makeParentSlot "receiver*" instance
+      let argsParent = makeParentSlot "args*" args
+      let activationRecord = { slotValue with Slots = ([receiverParent; argsParent] @ slotValue.Slots)}
+      f activationRecord
+    | _ -> failwith "Non-native code not yet supported!"
+
 
 let send (msg:string) (args:Objekt) (instance:Objekt) : Objekt =
-  failwith "TODO - modify implementation from step 2"
+  match lookup msg instance with
+  | [(_, slot)] -> eval slot.Contents args instance
+  | [] -> failwith "No slot with that name found!"
+  | _ -> failwith "Too many slots with that name found!"
+
+
 
 // ----------------------------------------------------------------------------
 // Helpers for testing & object construction
 // ----------------------------------------------------------------------------
 
-let empty : Objekt = failwith "implemented in step 2"
-let getStringValue (obj:Objekt) : string = failwith "implemented in step 2"
-let printCode : Objekt = failwith "implemented in step 2"
+let empty : Objekt = makeObject []
+
+let getStringValue (obj:Objekt) : string = 
+  let o = send "value" empty obj
+  match o.Special with
+  | Some (String s) -> s
+  | _ -> failwith "The object doesn't have a string at a 'value' slot!"
 
 
-// TODO: Implement method to append one string to another.
-// Start by visualizing the activation record using 'Vis.printObjectTree'! 
-//
-// The first string is the current instance. The activation record
-// has the current instance as a parent, so you can access its slots
-// directly through the activation record (using 'getStringValue').
-// The second string is an argument named 'other', so you need to get 
-// that using 'send'
-//
-// NOTE: This is now recursively defined so that you can create a new
-// string value inside 'appendCode' using 'makeString'.
+let printCode = makeNativeMethod (fun arcd ->
+  let s = getStringValue arcd 
+  printfn "%s" s
+  empty
+)
+
 let rec appendCode = makeNativeMethod (fun arcd -> 
-  failwith "TODO - not implemented"
+  let s1 = getStringValue arcd
+  let s2 = getStringValue (send "other" empty arcd)
+  makeString (s1 + s2)
 )
 and stringPrototype = makeObject [
   makeSlot "print" printCode  
@@ -119,14 +144,23 @@ s1
 // ----------------------------------------------------------------------------
 
 let assignmentMethod n = makeNativeMethod (fun arcd -> 
-  // TODO: The activation record has a slot named 'n' (name given as the 
-  // argument) somewhere in its inheritance graph and a slot named 'new'
-  // ('new' being the actual slot name) which is a method argument.
-  // Find those two using 'lookup' and modify the slot value (in the 
-  // that contained it - as returned from lookup). (Tiny)Self assignment 
-  // should return the object that has been modified.
-  // NOTE: Mutate the slots using 'obj.Slots <- newSlots'!
-  failwith "TODO: not implemented" )
+  let newSlot = 
+    match lookup "new" arcd with
+    | [(_, s)] -> s
+    | _ -> failwith "New value not found!"
+  let obj =
+    match lookup n arcd with
+    | [(o, _)] -> o
+    | _ -> failwith "Named slot not found!"
+  let renamedNewSlot = { newSlot with Name = n }
+  let newSlots' =
+    [for s in obj.Slots -> 
+      if (s.Name = n) then renamedNewSlot else s
+    ]
+  obj.Slots <- newSlots'
+  obj
+  )
+
 
 // Creates an assignment slot for a slot named 'n'
 let makeAssignmentSlot n = 

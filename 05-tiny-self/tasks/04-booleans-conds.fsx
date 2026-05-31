@@ -44,29 +44,87 @@ let makeNativeMethod f =
 // Lookup and message sending
 // ----------------------------------------------------------------------------
 
-let rec lookup (msg:string) (obj:Objekt) : list<Objekt * Slot> = 
-  failwith "TODO - implemented in step 3"
+let rec lookupSlotName (name : string) (slots : list<Slot>) : option<Slot> =
+  match slots with
+  | [] -> None
+  | s1 :: ss ->
+    match s1 with
+    | { Name = n} -> if (n = name) then Some s1 else (lookupSlotName name ss)
+
+let rec findAllParentObjekts (slots : list<Slot>) : list<Objekt> =
+  match slots with
+  | [] -> []
+  | s1 :: ss ->
+    if s1.IsParent 
+      then (s1.Contents :: (findAllParentObjekts ss)) 
+      else (findAllParentObjekts ss)
+
+let rec lookup (msg:string) (obj:Objekt) : list<Objekt * Slot> =
+  match lookupSlotName msg obj.Slots with
+  | Some s -> [(obj, s)]
+  | _ ->
+    let parents = findAllParentObjekts obj.Slots
+    List.collect (lookup msg) parents
 
 let eval (slotValue:Objekt) (args:Objekt) (instance:Objekt) : Objekt =
-  failwith "TODO - implemented in step 3"
+  match slotValue with
+  | { Code = None } -> slotValue
+  | { Code = Some c } -> 
+    match c with
+    | { Special = Some (Native f)} ->
+      let receiverParent = makeParentSlot "receiver*" instance
+      let argsParent = makeParentSlot "args*" args
+      let activationRecord = { slotValue with Slots = ([receiverParent; argsParent] @ slotValue.Slots)}
+      f activationRecord
+    | _ -> failwith "Non-native code not yet supported!"
+
 
 let send (msg:string) (args:Objekt) (instance:Objekt) : Objekt =
-  failwith "TODO - implemented in step 3"
+  match lookup msg instance with
+  | [(_, slot)] -> eval slot.Contents args instance
+  | [] -> failwith "No slot with that name found!"
+  | _ -> failwith "Too many slots with that name found!"
 
 // ----------------------------------------------------------------------------
 // Helpers for testing & object construction
 // ----------------------------------------------------------------------------
 
-let empty : Objekt = failwith "TODO - implemented in step 2"
-let getStringValue (obj:Objekt) : string = failwith "TODO - implemented in step 2"
-let printCode : Objekt = failwith "TODO - implemented in step 2"
+let empty : Objekt = makeObject []
+
+let getStringValue (obj:Objekt) : string = 
+  let o = send "value" empty obj
+  match o.Special with
+  | Some (String s) -> s
+  | _ -> failwith "The object doesn't have a string at a 'value' slot!"
+
+
+let printCode = makeNativeMethod (fun arcd ->
+  let s = getStringValue arcd 
+  printfn "%s" s
+  empty
+)
 
 // ----------------------------------------------------------------------------
 // Assignment slots
 // ----------------------------------------------------------------------------
 
 let assignmentMethod n = makeNativeMethod (fun arcd -> 
-  failwith "TODO: implemented in step 3" )
+  let newSlot = 
+    match lookup "new" arcd with
+    | [(_, s)] -> s
+    | _ -> failwith "New value not found!"
+  let obj =
+    match lookup n arcd with
+    | [(o, _)] -> o
+    | _ -> failwith "Named slot not found!"
+  let renamedNewSlot = { newSlot with Name = n }
+  let newSlots' =
+    [for s in obj.Slots -> 
+      if (s.Name = n) then renamedNewSlot else s
+    ]
+  obj.Slots <- newSlots'
+  obj
+  )
 
 let makeAssignmentSlot n = 
   { Name = n + ":"; Contents = assignmentMethod n; IsParent = false }
@@ -75,33 +133,36 @@ let makeAssignmentSlot n =
 // Primitive types - Booleans, strings and blocks
 // ----------------------------------------------------------------------------
 
-
-// TODO: Implement a helper function that creates (the two) boolean objects.
-// Boolean is an object with 'if' method. The method takes two parameters
-// called 'then' and 'else'. They are blocks (created using 'makeBlock' - 
-// see below). The method runs the correct block (depending on whether 
-// 'b' is true or false) by sending it 'run' message with empty arguments.
-
-let makeBoolean b = makeObject [
+let makeBoolean (b:bool) = makeObject [
   makeSlot "if" (makeNativeMethod (fun arcd -> 
-    failwith "TODO - implement the 'if' method!"
+    let block =
+      if b then
+        match lookup "then" arcd with
+        | [(_, s)] -> s.Contents
+        | _ -> failwith "No 'then' block found!"
+      else
+        match lookup "else" arcd with
+        | [(_, s)] -> s.Contents
+        | _ -> failwith "No 'else' block found!"
+    send "run" empty block
   ))
 ]
 
 let trueObj = makeBoolean true
 let falseObj = makeBoolean false
 
-
-// TODO: Implement equality testing for strings. The 'equals' method takes
-// a parameter 'other' with the other string (same as append). It should 
-// return 'trueObj' if the two strings are equal or 'falseObj' otherwise.
-
 let equalsCode = makeNativeMethod (fun arcd -> 
-  failwith "TODO - not implemented"
+  let s1 = getStringValue arcd
+  let s2 = getStringValue (send "other" empty arcd)
+  if (s1 = s2)
+    then trueObj
+    else falseObj
 )
 
 let rec appendCode = makeNativeMethod (fun arcd -> 
-  failwith "TODO - implemented in step 3"
+  let s1 = getStringValue arcd
+  let s2 = getStringValue (send "other" empty arcd)
+  makeString (s1 + s2)
 )
 
 and stringPrototype = makeObject [
@@ -154,11 +215,29 @@ let player2 = if rnd.Next(2) = 0 then betray else coop
 //     else "betray-betray: each serves 2 years"
 //
 player1 |> send "equals" (makeObject [makeSlot "other" coop]) |> send "if" (makeObject [
-  makeSlot "then" (makeBlock (fun () -> 
-    makeString "TODO: then clause"
+  makeSlot "then" (makeBlock (fun () ->
+    let decision2 = send "equals" (makeObject [makeSlot "other" coop]) player2
+    send "if" (
+      makeObject [
+        makeSlot "then" (makeBlock (fun () ->
+          makeString "cooperate-cooperate: each serves 1 year"
+        ))
+        makeSlot "else" (makeBlock (fun () ->
+          makeString "cooperate-betray: #1 gets 3 years, #2 is free"
+        ))
+      ]) decision2
   ))
   makeSlot "else" (makeBlock (fun () -> 
-    makeString "TODO: else clause"
+    let decision2 = send "equals" (makeObject [makeSlot "other" coop]) player2
+    send "if" (
+      makeObject [
+        makeSlot "then" (makeBlock (fun () ->
+          makeString "betray-cooperate: #1 is free, #2 gets 3 years"
+        ))
+        makeSlot "else" (makeBlock (fun () ->
+          makeString "betray-betray: each serves 2 years"
+        ))
+      ]) decision2
   ))
 ])
 |> send "print" empty
